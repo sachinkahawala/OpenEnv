@@ -77,13 +77,19 @@ class SokobanEnvironment(Environment):
         self._pushes_count = 0
         self._previous_boxes_on_goals = 0
 
-    def reset(self) -> SokobanObservation:
+    def reset(self, seed: int | None = None) -> SokobanObservation:
         """
         Reset the environment and generate a new puzzle.
+
+        Args:
+            seed: Optional random seed for reproducible level generation
 
         Returns:
             SokobanObservation with the initial board state
         """
+        if seed is not None:
+            random.seed(seed)
+        
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._moves_count = 0
         self._pushes_count = 0
