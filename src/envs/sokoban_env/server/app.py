@@ -21,9 +21,26 @@ Usage:
     python -m envs.sokoban_env.server.app
 """
 
-from core.env_server.http_server import create_app
+import logging
+from pathlib import Path
+import os
 
-from ..models import SokobanAction, SokobanObservation
+# Setup logging to file
+log_dir = Path(__file__).resolve().parents[4] / "logs"
+os.makedirs(log_dir, exist_ok=True)
+log_file = log_dir / "sokoban_server.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()  # Keep logging to console as well
+    ]
+)
+logger = logging.getLogger(__name__)
+
+from core.env_server.http_server import create_app
 from .sokoban_environment import SokobanEnvironment
 
 # Create the environment instance
@@ -31,6 +48,14 @@ env = SokobanEnvironment()
 
 # Create the app with web interface and README integration
 app = create_app(env, SokobanAction, SokobanObservation, env_name="sokoban_env")
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Sokoban server starting up.")
+
+@app.on_event("shutdown")
+def shutdown_event():
+    logger.info("Sokoban server shutting down.")
 
 
 if __name__ == "__main__":

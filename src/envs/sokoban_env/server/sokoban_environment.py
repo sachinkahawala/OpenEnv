@@ -11,6 +11,7 @@ A classic puzzle game where the player pushes boxes onto goal positions.
 The player can move in four directions and push boxes (but not pull them).
 """
 
+import logging
 import random
 import numpy as np
 from typing import List, Tuple
@@ -31,6 +32,8 @@ GOAL = 3
 PLAYER = 4
 BOX_ON_GOAL = 5
 PLAYER_ON_GOAL = 6
+
+logger = logging.getLogger(__name__)
 
 
 class SokobanEnvironment(Environment):
@@ -79,6 +82,8 @@ class SokobanEnvironment(Environment):
         self._pushes_count = 0
         self._previous_boxes_on_goals = 0
 
+        logger.info(f"SokobanEnvironment initialized with board_size={board_size}, num_boxes={num_boxes}, max_steps={max_steps}")
+
     def reset(self, seed: int | None = None) -> SokobanObservation:
         """
         Reset the environment and generate a new puzzle.
@@ -93,6 +98,7 @@ class SokobanEnvironment(Environment):
             random.seed(seed)
         
         self._state = State(episode_id=str(uuid4()), step_count=0)
+        logger.info(f"Environment reset. New episode ID: {self._state.episode_id}")
         self._moves_count = 0
         self._pushes_count = 0
         self._previous_boxes_on_goals = 0
@@ -160,10 +166,13 @@ class SokobanEnvironment(Environment):
         if observation.is_solved:
             reward += 100  # Big reward for solving
             observation.done = True
+            logger.info(f"Episode {self._state.episode_id} solved! Final reward: {reward}")
         elif self._state.step_count >= self.max_steps:
             observation.done = True
+            logger.warning(f"Episode {self._state.episode_id} ended due to max steps reached.")
         
         observation.reward = reward
+        logger.debug(f"Step {self._state.step_count}: Action={action.direction}, Reward={reward}, Done={observation.done}")
         return observation
 
     def _generate_level(self) -> None:
@@ -178,6 +187,7 @@ class SokobanEnvironment(Environment):
         """
         try:
             # Generate level using the proven reverse-playing algorithm
+            logger.info("Generating level with advanced generator.")
             room_structure, room_state, box_mapping = level_gen.generate_sokoban_level(
                 dim=(self.board_size, self.board_size),
                 p_change_directions=0.35,
@@ -191,7 +201,7 @@ class SokobanEnvironment(Environment):
             
         except Exception as e:
             # Fallback to simple generation if the advanced generator fails
-            print(f"Advanced generator failed: {e}, using fallback")
+            logger.error(f"Advanced generator failed: {e}, using fallback.")
             self._generate_level_simple()
     
     def _convert_from_numpy_format(self, room_structure: np.ndarray, room_state: np.ndarray) -> None:
