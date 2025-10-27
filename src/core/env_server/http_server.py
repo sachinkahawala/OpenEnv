@@ -77,8 +77,16 @@ class HTTPEnvServer:
         @app.post("/reset")
         async def reset(request: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
             """Reset endpoint - returns initial observation."""
-            # TODO: Handle seed, episode_id from request if provided
-            observation = self.env.reset()
+            # Extract seed if provided
+            seed = request.get("seed")
+            
+            # Call reset with seed if the environment supports it
+            try:
+                observation = self.env.reset(seed=seed) if seed is not None else self.env.reset()
+            except TypeError:
+                # Fallback for environments that don't support seed parameter
+                observation = self.env.reset()
+            
             return self._serialize_observation(observation)
 
         @app.post("/step")

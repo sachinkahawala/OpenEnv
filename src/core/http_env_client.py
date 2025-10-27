@@ -121,10 +121,11 @@ class HTTPEnvClient(ABC, Generic[ActT, ObsT]):
         raise NotImplementedError
 
     # ---------- Environment Server Interface Methods ----------
-    def reset(self) -> StepResult[ObsT]:
+    def reset(self, seed: Optional[int] = None) -> StepResult[ObsT]:
         body: Dict[str, Any] = {}
+        if seed is not None:
+            body["seed"] = seed
         # TODO: later:
-        # body["seed"] = seed
         # body["episode_id"] = episode_id
         r = self._http.post(
             f"{self._base}/reset",
