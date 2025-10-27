@@ -218,11 +218,17 @@ class SokobanEnvironment(Environment):
         self._board = [[EMPTY for _ in range(self.board_size)] for _ in range(self.board_size)]
         self._goal_positions = []
         
-        # Convert state
+        # First pass: identify goal positions from structure
+        for r in range(self.board_size):
+            for c in range(self.board_size):
+                struct_cell = int(room_structure[r, c])
+                if struct_cell == 2:  # goal in structure
+                    self._goal_positions.append((r, c))
+        
+        # Second pass: convert state and properly mark goals
         for r in range(self.board_size):
             for c in range(self.board_size):
                 gen_cell = int(room_state[r, c])
-                struct_cell = int(room_structure[r, c])
                 
                 # Map the cell value
                 if gen_cell in gen_to_internal:
@@ -234,17 +240,17 @@ class SokobanEnvironment(Environment):
                 if gen_cell == 5:  # player
                     self._player_pos = (r, c)
                 
-                # Track goal positions (from structure)
-                if struct_cell == 2:  # goal in structure
-                    self._goal_positions.append((r, c))
-                    # If cell is empty, mark it as goal
+                # If this is a goal position and cell is empty, mark it as GOAL
+                if (r, c) in self._goal_positions:
                     if self._board[r][c] == EMPTY:
                         self._board[r][c] = GOAL
-                    # If player is on goal, mark correctly
+                    elif self._board[r][c] == BOX:
+                        self._board[r][c] = BOX_ON_GOAL
                     elif self._board[r][c] == PLAYER:
-                        self._board[r][c] = PLAYER
-                        # Keep player position but remember it's on a goal
-    
+                        # Player is on goal, but keep as PLAYER for now
+                        # (game logic will handle this)
+                        pass
+
     def _generate_level_simple(self) -> None:
         """Fallback simple level generator."""
         # Initialize empty board

@@ -94,8 +94,8 @@ def generate_sokoban_level(
         # Use reverse-playing to generate solvable level
         room_state, score, box_mapping = reverse_playing(room_state, room_structure)
         
-        # Ensure boxes that aren't on goals are marked correctly
-        room_state[room_state == BOX] = BOX_ON_GOAL
+        # Note: Don't convert boxes back to BOX_ON_GOAL - the reverse playing
+        # already placed them correctly (away from goals)
         
         if score > 0:
             break
