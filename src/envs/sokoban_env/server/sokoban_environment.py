@@ -56,7 +56,7 @@ class SokobanEnvironment(Environment):
         >>> print(f"Reward: {obs.reward}")
     """
 
-    def __init__(self, board_size: int = 6, num_boxes: int = 1, max_steps: int = 200):
+    def __init__(self, board_size: int = 8, num_boxes: int = 1, max_steps: int = 200):
         """
         Initialize the Sokoban environment.
 
