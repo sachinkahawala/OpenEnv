@@ -12,6 +12,7 @@ The player can move in four directions and push boxes (but not pull them).
 """
 
 import random
+import numpy as np
 from typing import List, Tuple
 from uuid import uuid4
 
@@ -19,6 +20,7 @@ from core.env_server.interfaces import Environment
 from core.env_server.types import State
 
 from ..models import SokobanAction, SokobanObservation
+from . import utils as level_gen
 
 
 # Cell type constants
@@ -168,98 +170,83 @@ class SokobanEnvironment(Environment):
         """
         Generate a solvable Sokoban level using reverse-playing algorithm.
         
-        The algorithm works by:
-        1. Starting with all boxes on goals (solved state)
-        2. Performing reverse moves (pulling boxes) to create the initial state
-        3. This guarantees the level is solvable since we know the solution path
+        Uses the level generator from utils.py which:
+        1. Creates a room topology with random walk
+        2. Places boxes on goals and player
+        3. Uses reverse-playing (pulling boxes) to create the initial state
+        4. Guarantees solvability by construction
         """
-        max_attempts = 10
-        for attempt in range(max_attempts):
-            try:
-                self._generate_level_reverse_playing()
-                # Verify we have a valid level
-                if self._count_boxes() == self.num_boxes:
-                    return
-            except Exception:
-                # If generation fails, try again
-                continue
-        
-        # Fallback to simple generation if reverse-playing fails
-        self._generate_level_simple()
+        try:
+            # Generate level using the proven reverse-playing algorithm
+            room_structure, room_state, box_mapping = level_gen.generate_sokoban_level(
+                dim=(self.board_size, self.board_size),
+                p_change_directions=0.35,
+                num_steps=max(15, self.board_size * 2),
+                num_boxes=self.num_boxes,
+                tries=5
+            )
+            
+            # Convert from numpy format to our internal format
+            self._convert_from_numpy_format(room_structure, room_state)
+            
+        except Exception as e:
+            # Fallback to simple generation if the advanced generator fails
+            print(f"Advanced generator failed: {e}, using fallback")
+            self._generate_level_simple()
     
-    def _generate_level_reverse_playing(self) -> None:
+    def _convert_from_numpy_format(self, room_structure: np.ndarray, room_state: np.ndarray) -> None:
         """
-        Generate a level using reverse-playing (backward search).
+        Convert from the numpy-based generator format to our internal format.
         
-        Start from a solved state and work backwards by pulling boxes away from goals.
-        This ensures the generated level is solvable.
+        Generator format:
+            0 = wall, 1 = empty, 2 = goal, 3 = box, 4 = box_on_goal, 5 = player
+        
+        Our format:
+            0 = empty, 1 = wall, 2 = box, 3 = goal, 4 = player, 5 = box_on_goal, 6 = player_on_goal
         """
-        # Initialize board with walls
-        self._board = [[EMPTY for _ in range(self.board_size)] 
-                       for _ in range(self.board_size)]
+        # Mapping from generator format to our format
+        gen_to_internal = {
+            0: WALL,          # wall -> wall
+            1: EMPTY,         # empty -> empty
+            2: GOAL,          # goal -> goal
+            3: BOX,           # box -> box
+            4: BOX_ON_GOAL,   # box_on_goal -> box_on_goal
+            5: PLAYER,        # player -> player
+        }
         
-        # Add walls around the border
-        for i in range(self.board_size):
-            self._board[0][i] = WALL
-            self._board[self.board_size - 1][i] = WALL
-            self._board[i][0] = WALL
-            self._board[i][self.board_size - 1] = WALL
+        # Initialize board
+        self._board = [[EMPTY for _ in range(self.board_size)] for _ in range(self.board_size)]
+        self._goal_positions = []
         
-        # Add some random internal walls to create interesting layouts
-        num_walls = random.randint(self.board_size // 3, self.board_size // 2)
-        wall_attempts = 0
-        max_wall_attempts = num_walls * 5
-        
-        while wall_attempts < max_wall_attempts and num_walls > 0:
-            r = random.randint(2, self.board_size - 3)
-            c = random.randint(2, self.board_size - 3)
-            
-            # Don't create isolated areas or corners
-            if self._board[r][c] == EMPTY:
-                self._board[r][c] = WALL
-                # Check if this wall doesn't block too much space
-                if self._count_reachable_cells(r + 1, c + 1) > self.num_boxes * 3:
-                    num_walls -= 1
+        # Convert state
+        for r in range(self.board_size):
+            for c in range(self.board_size):
+                gen_cell = int(room_state[r, c])
+                struct_cell = int(room_structure[r, c])
+                
+                # Map the cell value
+                if gen_cell in gen_to_internal:
+                    self._board[r][c] = gen_to_internal[gen_cell]
                 else:
-                    self._board[r][c] = EMPTY  # Undo
-            wall_attempts += 1
-        
-        # Initialize solved state: place goals and boxes on them
-        self._initialize_solved_state()
-        
-        # Perform reverse moves (pull boxes away from goals)
-        num_reverse_moves = random.randint(
-            self.num_boxes * 3,  # Minimum complexity
-            min(self.num_boxes * 10, self.max_steps // 2)  # Maximum complexity
-        )
-        
-        visited_states = set()
-        visited_states.add(self._board_hash())
-        
-        for _ in range(num_reverse_moves):
-            # Get all possible box pulls
-            pullable_boxes = self._get_pullable_boxes()
-            
-            if not pullable_boxes:
-                break
-            
-            # Choose a random pullable box and direction
-            box_pos, pull_directions = random.choice(pullable_boxes)
-            direction = random.choice(pull_directions)
-            
-            # Perform the pull
-            self._pull_box_reverse(box_pos, direction)
-            
-            # Track visited states to avoid trivial back-and-forth
-            board_hash = self._board_hash()
-            if board_hash not in visited_states:
-                visited_states.add(board_hash)
-        
-        # Normalize the board (ensure goals are marked correctly)
-        self._normalize_board()
+                    self._board[r][c] = EMPTY
+                
+                # Track player position
+                if gen_cell == 5:  # player
+                    self._player_pos = (r, c)
+                
+                # Track goal positions (from structure)
+                if struct_cell == 2:  # goal in structure
+                    self._goal_positions.append((r, c))
+                    # If cell is empty, mark it as goal
+                    if self._board[r][c] == EMPTY:
+                        self._board[r][c] = GOAL
+                    # If player is on goal, mark correctly
+                    elif self._board[r][c] == PLAYER:
+                        self._board[r][c] = PLAYER
+                        # Keep player position but remember it's on a goal
     
     def _generate_level_simple(self) -> None:
-        """Fallback simple level generator (original algorithm)."""
+        """Fallback simple level generator."""
         # Initialize empty board
         self._board = [[EMPTY for _ in range(self.board_size)] 
                        for _ in range(self.board_size)]
@@ -312,262 +299,6 @@ class SokobanEnvironment(Environment):
         if row < 0 or row >= self.board_size or col < 0 or col >= self.board_size:
             return False
         return self._board[row][col] != WALL
-    
-    def _initialize_solved_state(self) -> None:
-        """
-        Initialize the board in a solved state (all boxes on goals).
-        Place player adjacent to the boxes.
-        """
-        self._goal_positions = []
-        
-        # Find suitable positions for goals in a cluster
-        center_r = self.board_size // 2
-        center_c = self.board_size // 2
-        
-        # Try to place goals in a connected area
-        placed = 0
-        attempts = 0
-        max_attempts = 100
-        
-        while placed < self.num_boxes and attempts < max_attempts:
-            if placed == 0:
-                # First goal near center
-                r = random.randint(center_r - 1, center_r + 1)
-                c = random.randint(center_c - 1, center_c + 1)
-            else:
-                # Subsequent goals near existing goals
-                existing_goal = random.choice(self._goal_positions)
-                dr = random.randint(-1, 1)
-                dc = random.randint(-1, 1)
-                r = existing_goal[0] + dr
-                c = existing_goal[1] + dc
-            
-            # Check if position is valid
-            if (1 <= r < self.board_size - 1 and 
-                1 <= c < self.board_size - 1 and
-                self._board[r][c] == EMPTY and
-                (r, c) not in self._goal_positions):
-                
-                self._goal_positions.append((r, c))
-                self._board[r][c] = BOX_ON_GOAL  # Start with boxes on goals
-                placed += 1
-            
-            attempts += 1
-        
-        # If we couldn't place all goals, fall back to random positions
-        while placed < self.num_boxes:
-            r = random.randint(1, self.board_size - 2)
-            c = random.randint(1, self.board_size - 2)
-            if self._board[r][c] == EMPTY and (r, c) not in self._goal_positions:
-                self._goal_positions.append((r, c))
-                self._board[r][c] = BOX_ON_GOAL
-                placed += 1
-        
-        # Place player adjacent to a goal
-        for goal_r, goal_c in self._goal_positions:
-            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                pr = goal_r + dr
-                pc = goal_c + dc
-                if (1 <= pr < self.board_size - 1 and 
-                    1 <= pc < self.board_size - 1 and
-                    self._board[pr][pc] == EMPTY):
-                    self._player_pos = (pr, pc)
-                    self._board[pr][pc] = PLAYER
-                    return
-        
-        # Fallback: place player in any empty cell
-        for r in range(1, self.board_size - 1):
-            for c in range(1, self.board_size - 1):
-                if self._board[r][c] == EMPTY:
-                    self._player_pos = (r, c)
-                    self._board[r][c] = PLAYER
-                    return
-    
-    def _get_pullable_boxes(self) -> List[Tuple[Tuple[int, int], List[str]]]:
-        """
-        Get all boxes that can be pulled by the player.
-        
-        Returns:
-            List of tuples: (box_position, list_of_valid_pull_directions)
-        """
-        pr, pc = self._player_pos
-        pullable = []
-        
-        # Check all four directions
-        directions = {
-            "up": (-1, 0),
-            "down": (1, 0),
-            "left": (0, -1),
-            "right": (0, 1),
-        }
-        
-        for direction, (dr, dc) in directions.items():
-            # Box position (in front of player)
-            box_r = pr + dr
-            box_c = pc + dc
-            
-            # Position behind player (where box will be pulled to)
-            pull_to_r = pr - dr
-            pull_to_c = pc - dc
-            
-            # Check if we can pull this box
-            if (self._is_valid_position(box_r, box_c) and
-                self._is_valid_position(pull_to_r, pull_to_c)):
-                
-                box_cell = self._board[box_r][box_c]
-                pull_to_cell = self._board[pull_to_r][pull_to_c]
-                
-                # Check if there's a box in front and empty space behind
-                if (box_cell in [BOX, BOX_ON_GOAL] and 
-                    pull_to_cell in [EMPTY, GOAL]):
-                    
-                    # Find or create entry for this box
-                    box_pos = (box_r, box_c)
-                    found = False
-                    for i, (pos, dirs) in enumerate(pullable):
-                        if pos == box_pos:
-                            pullable[i] = (pos, dirs + [direction])
-                            found = True
-                            break
-                    
-                    if not found:
-                        pullable.append((box_pos, [direction]))
-        
-        return pullable
-    
-    def _pull_box_reverse(self, box_pos: Tuple[int, int], direction: str) -> None:
-        """
-        Pull a box in the reverse-playing algorithm.
-        
-        This simulates the player pulling a box towards themselves,
-        which is the reverse of pushing.
-        
-        Args:
-            box_pos: Current position of the box
-            direction: Direction to pull the box (relative to player)
-        """
-        pr, pc = self._player_pos
-        box_r, box_c = box_pos
-        
-        # Direction deltas
-        direction_map = {
-            "up": (-1, 0),
-            "down": (1, 0),
-            "left": (0, -1),
-            "right": (0, 1),
-        }
-        
-        dr, dc = direction_map[direction]
-        
-        # New player position (where the box currently is)
-        new_pr = box_r
-        new_pc = box_c
-        
-        # New box position (behind the current player)
-        new_box_r = pr - dr
-        new_box_c = pc - dc
-        
-        # Move the box
-        is_box_on_goal = self._board[box_r][box_c] == BOX_ON_GOAL
-        if is_box_on_goal:
-            self._board[box_r][box_c] = GOAL
-        else:
-            self._board[box_r][box_c] = EMPTY
-        
-        # Place box in new position
-        if (new_box_r, new_box_c) in self._goal_positions:
-            self._board[new_box_r][new_box_c] = BOX_ON_GOAL
-        else:
-            self._board[new_box_r][new_box_c] = BOX
-        
-        # Move the player
-        self._board[pr][pc] = EMPTY
-        
-        if (new_pr, new_pc) in self._goal_positions:
-            self._board[new_pr][new_pc] = PLAYER_ON_GOAL
-        else:
-            self._board[new_pr][new_pc] = PLAYER
-        
-        self._player_pos = (new_pr, new_pc)
-    
-    def _normalize_board(self) -> None:
-        """
-        Normalize the board to ensure goals are properly marked.
-        After reverse-playing, we need to ensure GOAL cells are visible.
-        """
-        # First pass: mark all goal positions
-        for goal_r, goal_c in self._goal_positions:
-            cell = self._board[goal_r][goal_c]
-            if cell == EMPTY:
-                self._board[goal_r][goal_c] = GOAL
-            elif cell == PLAYER:
-                self._board[goal_r][goal_c] = PLAYER_ON_GOAL
-            elif cell == BOX:
-                self._board[goal_r][goal_c] = BOX_ON_GOAL
-            # BOX_ON_GOAL and PLAYER_ON_GOAL already correct
-    
-    def _board_hash(self) -> int:
-        """
-        Create a hash of the current board state for deduplication.
-        
-        Returns:
-            Hash value representing the current board state
-        """
-        # Create a tuple of (player_pos, frozenset of box positions)
-        box_positions = []
-        for r in range(self.board_size):
-            for c in range(self.board_size):
-                if self._board[r][c] in [BOX, BOX_ON_GOAL]:
-                    box_positions.append((r, c))
-        
-        return hash((self._player_pos, frozenset(box_positions)))
-    
-    def _count_reachable_cells(self, start_r: int, start_c: int) -> int:
-        """
-        Count the number of cells reachable from a starting position.
-        Used to avoid creating isolated areas.
-        
-        Args:
-            start_r: Starting row
-            start_c: Starting column
-            
-        Returns:
-            Number of reachable empty cells
-        """
-        if not (0 <= start_r < self.board_size and 0 <= start_c < self.board_size):
-            return 0
-        
-        if self._board[start_r][start_c] == WALL:
-            return 0
-        
-        visited = set()
-        queue = [(start_r, start_c)]
-        visited.add((start_r, start_c))
-        count = 0
-        
-        while queue:
-            r, c = queue.pop(0)
-            count += 1
-            
-            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                nr, nc = r + dr, c + dc
-                if ((nr, nc) not in visited and
-                    0 <= nr < self.board_size and
-                    0 <= nc < self.board_size and
-                    self._board[nr][nc] != WALL):
-                    visited.add((nr, nc))
-                    queue.append((nr, nc))
-        
-        return count
-    
-    def _count_boxes(self) -> int:
-        """Count the total number of boxes on the board."""
-        count = 0
-        for row in self._board:
-            for cell in row:
-                if cell in [BOX, BOX_ON_GOAL]:
-                    count += 1
-        return count
 
     def _move_player(self, new_r: int, new_c: int) -> None:
         """Move the player to a new position."""
