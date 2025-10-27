@@ -41,6 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from core.env_server.http_server import create_app
+from ..models import SokobanAction, SokobanObservation
 from .sokoban_environment import SokobanEnvironment
 
 # Create the environment instance
