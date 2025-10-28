@@ -251,7 +251,7 @@ def reverse_playing(
     # Reset global state
     explored_states = set()
     best_room_score = -1
-    best_room = room_state.copy()
+    best_room = None  # Don't initialize with the solved state
     best_box_mapping = box_mapping.copy()
     
     # Perform depth-first search with reverse moves
@@ -263,6 +263,11 @@ def reverse_playing(
         last_pull=(-1, -1),
         ttl=search_depth
     )
+    
+    # If no valid room found, return the initial state (but this should rarely happen)
+    if best_room is None:
+        best_room = room_state.copy()
+        best_room_score = 0
     
     return best_room, best_room_score, best_box_mapping
 
@@ -312,7 +317,10 @@ def depth_first_search(
     room_score = 0
     if current_num_boxes == num_boxes:
         displacement = box_displacement_score(box_mapping)
-        room_score = box_swaps * displacement
+        # Only score positively if boxes have been moved away from goals
+        # Require minimum displacement to avoid accepting the initial solved state
+        if displacement > 0:
+            room_score = box_swaps * displacement
     
     # Update best room if this is better
     if room_score > best_room_score:
