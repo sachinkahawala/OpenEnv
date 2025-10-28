@@ -75,6 +75,8 @@ def generate_sokoban_level(
     room_state = np.zeros(shape=dim, dtype=int)
     room_structure = np.zeros(shape=dim, dtype=int)
     
+    level_valid = False
+
     # Try multiple times to generate a level with a good score
     for attempt in range(tries):
         # Generate room topology (walls and floors)
@@ -93,6 +95,16 @@ def generate_sokoban_level(
         
         # Use reverse-playing to generate solvable level
         room_state, score, box_mapping = reverse_playing(room_state, room_structure)
+
+        # Validate that no boxes remain on goal positions after reverse playing
+        boxes_on_goals = int(np.count_nonzero(room_state == BOX_ON_GOAL))
+        if boxes_on_goals == 0:
+            level_valid = True
+            break
+
+        # If the configuration is still solved, try another attempt
+        # so that we do not start from a trivially solved state.
+        continue
         
         # Note: Don't convert boxes back to BOX_ON_GOAL - the reverse playing
         # already placed them correctly (away from goals)
@@ -103,6 +115,9 @@ def generate_sokoban_level(
     if score == 0:
         # If we couldn't generate a good level, return at least a valid one
         print(f"Warning: Generated level with score 0 after {tries} attempts")
+
+    if not level_valid:
+        raise RuntimeError("Failed to generate Sokoban level with boxes off goals")
     
     return room_structure, room_state, box_mapping
 
