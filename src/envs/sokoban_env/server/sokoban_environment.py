@@ -101,10 +101,11 @@ class SokobanEnvironment(Environment):
         logger.info(f"Environment reset. New episode ID: {self._state.episode_id}")
         self._moves_count = 0
         self._pushes_count = 0
-        self._previous_boxes_on_goals = 0
         
         # Generate a new random level
         self._generate_level()
+        
+        self._previous_boxes_on_goals = self._count_boxes_on_goals()
         
         return self._get_observation()
 
