@@ -67,7 +67,7 @@ class SokobanEnvironment(Environment):
 
         Args:
             board_size: Size of the square board (default: 8)
-            num_boxes: Number of boxes to place (default: 3)
+            num_boxes: Number of boxes to place (default: 1)
             max_steps: Maximum steps before episode ends (default: 200)
         """
         self.board_size = board_size
