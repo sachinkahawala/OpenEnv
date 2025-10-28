@@ -251,16 +251,14 @@ class SokobanEnvironment(Environment):
                 if gen_cell == 5:  # player
                     self._player_pos = (r, c)
                 
-                # If this is a goal position and cell is empty, mark it as GOAL
+                # Only mark EMPTY cells as goals if they're at goal positions
+                # DON'T convert BOX to BOX_ON_GOAL - the generator already handled this
+                # The reverse-playing algorithm places boxes away from goals intentionally
                 if (r, c) in self._goal_positions:
                     if self._board[r][c] == EMPTY:
                         self._board[r][c] = GOAL
-                    elif self._board[r][c] == BOX:
-                        self._board[r][c] = BOX_ON_GOAL
-                    elif self._board[r][c] == PLAYER:
-                        # Player is on goal, but keep as PLAYER for now
-                        # (game logic will handle this)
-                        pass
+                    # Note: If gen_cell was already BOX_ON_GOAL (4), it's already mapped correctly
+                    # We don't need to convert BOX to BOX_ON_GOAL here
 
     def _generate_level_simple(self) -> None:
         """Fallback simple level generator."""
