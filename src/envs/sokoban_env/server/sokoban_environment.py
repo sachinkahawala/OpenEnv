@@ -61,13 +61,13 @@ class SokobanEnvironment(Environment):
         >>> print(f"Reward: {obs.reward}")
     """
 
-    def __init__(self, board_size: int = 8, num_boxes: int = 1, max_steps: int = 200):
+    def __init__(self, board_size: int = 8, num_boxes: int = 3, max_steps: int = 200):
         """
         Initialize the Sokoban environment.
 
         Args:
             board_size: Size of the square board (default: 8)
-            num_boxes: Number of boxes to place (default: 1)
+            num_boxes: Number of boxes to place (default: 3)
             max_steps: Maximum steps before episode ends (default: 200)
         """
         self.board_size = board_size
