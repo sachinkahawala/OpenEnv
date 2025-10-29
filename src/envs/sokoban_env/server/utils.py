@@ -13,7 +13,7 @@ Based on the algorithm described in the paper:
 
 import random
 import numpy as np
-from typing import Dict, Tuple, Set, Optional
+from typing import Dict, Tuple, Set, Optional, List
 
 
 # Cell type encoding for generation
@@ -76,30 +76,35 @@ def generate_sokoban_level(
     room_structure = np.zeros(shape=dim, dtype=int)
     
     level_valid = False
+    score = 0
 
     # Try multiple times to generate a level with a good score
     for attempt in range(tries):
         # Generate room topology (walls and floors)
-        room = room_topology_generation(dim, p_change_directions, num_steps)
-        
-        # Place boxes (on goals) and player
-        room = place_boxes_and_player(room, num_boxes=num_boxes)
-        
-        # Room structure represents all immovable parts
-        room_structure = np.copy(room)
-        room_structure[room_structure == PLAYER] = EMPTY
-        
-        # Room state represents current state with movable objects
-        room_state = room.copy()
-        room_state[room_state == GOAL] = BOX_ON_GOAL  # Start with all boxes on goals
-        
+        room_layout = room_topology_generation(dim, p_change_directions, num_steps)
+
+        # Select player and goal locations on the floor tiles
+        player_position, goal_positions = place_boxes_and_player(room_layout, num_boxes=num_boxes)
+
+        # Room structure represents all immovable parts (walls, floor, marked goals)
+        room_structure = np.where(room_layout == WALL, WALL, EMPTY)
+        for goal_r, goal_c in goal_positions:
+            room_structure[goal_r, goal_c] = GOAL
+
+        # Room state starts from solved configuration (boxes on goals, player placed)
+        room_state = room_structure.copy()
+        for goal_r, goal_c in goal_positions:
+            room_state[goal_r, goal_c] = BOX_ON_GOAL
+        player_r, player_c = player_position
+        room_state[player_r, player_c] = PLAYER
+
         # Use reverse-playing to generate solvable level
         room_state, score, box_mapping = reverse_playing(room_state, room_structure)
 
         # Validate that the resulting layout has the expected number of boxes/goals
         boxes_on_goals = int(np.count_nonzero(room_state == BOX_ON_GOAL))
         total_boxes = int(np.count_nonzero(room_state == BOX)) + boxes_on_goals
-        total_goals = int(np.count_nonzero(room_structure == GOAL))
+        total_goals = len(goal_positions)
 
         if total_goals != num_boxes:
             # Regenerate if we somehow lost goal markers (should be rare)
@@ -109,26 +114,19 @@ def generate_sokoban_level(
             # Regenerate if any box vanished during reverse playing
             continue
 
-        if boxes_on_goals == 0:
-            level_valid = True
-            break
+        if boxes_on_goals > 0:
+            # Still solved; try another attempt
+            continue
 
-        # If the configuration is still solved, try another attempt so we do
-        # not start from a trivially solved state.
-        continue
-        
-        # Note: Don't convert boxes back to BOX_ON_GOAL - the reverse playing
-        # already placed them correctly (away from goals)
-        
-        if score > 0:
-            break
+        level_valid = True
+        break
     
+    if not level_valid:
+        raise RuntimeError("Failed to generate Sokoban level with boxes off goals")
+
     if score == 0:
         # If we couldn't generate a good level, return at least a valid one
         print(f"Warning: Generated level with score 0 after {tries} attempts")
-
-    if not level_valid:
-        raise RuntimeError("Failed to generate Sokoban level with boxes off goals")
     
     return room_structure, room_state, box_mapping
 
@@ -204,42 +202,38 @@ def room_topology_generation(
     return level
 
 
-def place_boxes_and_player(room: np.ndarray, num_boxes: int) -> np.ndarray:
-    """
-    Place boxes (on goals) and player in random floor positions.
-    
+def place_boxes_and_player(room: np.ndarray, num_boxes: int) -> Tuple[Tuple[int, int], List[Tuple[int, int]]]:
+    """Select random floor positions for the player and each goal.
+
     Args:
-        room: Room topology
-        num_boxes: Number of boxes to place
-        
+        room: Room topology containing WALL and EMPTY cells
+        num_boxes: Number of boxes (and thus goals) to place
+
     Returns:
-        Room with player and boxes placed
+        Tuple of player position and list of goal positions
     """
-    # Find all empty floor positions
-    possible_positions = np.where(room == EMPTY)
-    num_possible_positions = possible_positions[0].shape[0]
-    
-    if num_possible_positions <= num_boxes + 1:  # Need space for boxes + player
+    # Collect all available floor tiles
+    empty_indices = list(zip(*np.where(room == EMPTY)))
+
+    if len(empty_indices) <= num_boxes:
         raise RuntimeError(
-            f'Not enough free spots ({num_possible_positions}) to place '
+            f'Not enough free spots ({len(empty_indices)}) to place '
             f'1 player and {num_boxes} boxes.'
         )
-    
-    # Place player
-    ind = np.random.randint(num_possible_positions)
-    player_position = (possible_positions[0][ind], possible_positions[1][ind])
-    room[player_position] = PLAYER
-    
-    # Place boxes (initially on goals - these are goal positions)
+
+    # Choose player position
+    player_idx = np.random.randint(len(empty_indices))
+    player_position = empty_indices.pop(player_idx)
+
+    # Choose distinct goal positions
+    goal_positions: List[Tuple[int, int]] = []
     for _ in range(num_boxes):
-        possible_positions = np.where(room == EMPTY)
-        num_possible_positions = possible_positions[0].shape[0]
-        
-        ind = np.random.randint(num_possible_positions)
-        box_position = (possible_positions[0][ind], possible_positions[1][ind])
-        room[box_position] = GOAL  # Mark as goal position
-    
-    return room
+        if not empty_indices:
+            raise RuntimeError('Ran out of floor tiles while placing goals.')
+        goal_idx = np.random.randint(len(empty_indices))
+        goal_positions.append(empty_indices.pop(goal_idx))
+
+    return player_position, goal_positions
 
 
 def reverse_playing(
