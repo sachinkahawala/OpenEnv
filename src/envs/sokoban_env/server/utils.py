@@ -96,14 +96,25 @@ def generate_sokoban_level(
         # Use reverse-playing to generate solvable level
         room_state, score, box_mapping = reverse_playing(room_state, room_structure)
 
-        # Validate that no boxes remain on goal positions after reverse playing
+        # Validate that the resulting layout has the expected number of boxes/goals
         boxes_on_goals = int(np.count_nonzero(room_state == BOX_ON_GOAL))
+        total_boxes = int(np.count_nonzero(room_state == BOX)) + boxes_on_goals
+        total_goals = int(np.count_nonzero(room_structure == GOAL))
+
+        if total_goals != num_boxes:
+            # Regenerate if we somehow lost goal markers (should be rare)
+            continue
+
+        if total_boxes != num_boxes:
+            # Regenerate if any box vanished during reverse playing
+            continue
+
         if boxes_on_goals == 0:
             level_valid = True
             break
 
-        # If the configuration is still solved, try another attempt
-        # so that we do not start from a trivially solved state.
+        # If the configuration is still solved, try another attempt so we do
+        # not start from a trivially solved state.
         continue
         
         # Note: Don't convert boxes back to BOX_ON_GOAL - the reverse playing
